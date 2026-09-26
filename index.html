@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wowalpha</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --white: #ffffff;
+    --black: #000000;
+    --dim: rgba(255, 255, 255, 0.45);
+    --faint: rgba(255, 255, 255, 0.15);
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--black);
+    color: var(--white);
+    font-family: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    position: relative;
+  }
+
+  /* faint radial vignette, pure grayscale, purely decorative */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.06), transparent 55%);
+    pointer-events: none;
+    contain: strict;
+  }
+
+  /* corner-bracket frame, like a viewfinder */
+  .frame {
+    position: fixed;
+    top: 28px;
+    left: 28px;
+    right: 28px;
+    bottom: 28px;
+    pointer-events: none;
+    contain: layout style paint;
+  }
+
+  .frame span {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--faint);
+  }
+
+  .frame span.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+  .frame span.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+  .frame span.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+  .frame span.br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+  /* timer, top center */
+  #timer {
+    position: fixed;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 4px;
+    color: var(--dim);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    will-change: opacity;
+  }
+
+  #timer.visible {
+    opacity: 1;
+  }
+
+  /* word, dead center */
+  #wordDisplay {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%) translateZ(0);
+    text-align: center;
+    font-size: 96px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    color: var(--white);
+    opacity: 0;
+    transition: opacity 0.04s linear;
+    pointer-events: none;
+    text-shadow: 0 0 40px rgba(255, 255, 255, 0.2);
+    will-change: opacity;
+    backface-visibility: hidden;
+  }
+
+  #wordDisplay.show {
+    opacity: 1;
+  }
+
+  /* session summary, shown after stop */
+  #summary {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    right: 0;
+    transform: translateY(96px);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    text-align: center;
+  }
+
+  #summary.visible {
+    opacity: 1;
+  }
+
+  #startBtn {
+    position: fixed;
+    bottom: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--white);
+    color: var(--black);
+    border: 1px solid var(--white);
+    padding: 18px 58px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    cursor: pointer;
+    text-transform: uppercase;
+    border-radius: 999px;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  }
+
+  #startBtn:hover {
+    transform: translateX(-50%) scale(1.045);
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.25);
+  }
+
+  #startBtn:active {
+    transform: translateX(-50%) scale(0.96);
+  }
+
+  #startBtn.active {
+    background: transparent;
+    color: var(--white);
+  }
+
+  /* credit, bottom right corner */
+  #credit {
+    position: fixed;
+    bottom: 18px;
+    right: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    font-weight: 400;
+    letter-spacing: 1.5px;
+    color: rgba(255, 255, 255, 0.25);
+    text-transform: uppercase;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+  <span class="tl"></span><span class="tr"></span>
+  <span class="bl"></span><span class="br"></span>
+</div>
+
+<div id="timer">00:00</div>
+<div id="wordDisplay"></div>
+<div id="summary"></div>
+<button id="startBtn">Start</button>
+<div id="credit">wowalpha</div>
+
+<script>
+  const WORDS = ["left", "right", "both"];
+  const DELAY = 1000; // fixed 1 second between word starts
+
+  let running = false;
+  let nextTickTimeoutId = null;
+  let keepAliveId = null;
+  let timerIntervalId = null;
+  let voices = [];
+  let currentUtterance = null; // kept in outer scope: local-only utterances can be GC'd mid-speech in some browsers
+  let startTime = 0;
+  let nextTickAt = 0;
+  let preferredVoice = null;
+  let speaking = false; // true while an utterance is in flight, guards the keep-alive nudge
+
+  const wordDisplay = document.getElementById('wordDisplay');
+  const startBtn = document.getElementById('startBtn');
+  const timerEl = document.getElementById('timer');
+  const summaryEl = document.getElementById('summary');
+
+  const synthAvailable = 'speechSynthesis' in window;
+
+  function loadVoices() {
+    voices = window.speechSynthesis.getVoices();
+    preferredVoice = voices.find(v => v.lang && v.lang.startsWith('en')) || voices[0] || null;
+  }
+
+  if (synthAvailable) {
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }
+
+  function showWord(word) {
+    // single rAF: swap text and flip the class in the same frame so the browser
+    // batches layout/paint without adding an extra frame of visual lag
+    requestAnimationFrame(() => {
+      wordDisplay.classList.remove('show');
+      wordDisplay.textContent = word;
+      void wordDisplay.offsetWidth; // force style recalc so the removed class actually takes effect before re-adding it
+      wordDisplay.classList.add('show');
+    });
+  }
+
+  function speak(word) {
+    if (!synthAvailable) {
+      showWord(word); // no speech support: fall back to visual-only
+      return;
+    }
+
+    speaking = true;
+    currentUtterance = new SpeechSynthesisUtterance(word);
+    currentUtterance.rate = 1;
+    currentUtterance.pitch = 1;
+    currentUtterance.volume = 1;
+    if (preferredVoice) currentUtterance.voice = preferredVoice;
+
+    // Reveal the word exactly when audio actually starts (not when speak() is called),
+    // since the engine has its own small startup latency that would otherwise
+    // desynchronize text from sound.
+    let started = false;
+    currentUtterance.onstart = () => {
+      started = true;
+      showWord(word);
+    };
+    currentUtterance.onend = () => { speaking = false; };
+    currentUtterance.onerror = () => { speaking = false; };
+
+    window.speechSynthesis.speak(currentUtterance);
+
+    // fallback in case a browser never fires onstart
+    setTimeout(() => {
+      if (!started) showWord(word);
+    }, 100);
+  }
+
+  function tick() {
+    if (!running) return;
+
+    // cancel just before queuing the next word, right at the scheduling boundary,
+    // rather than inside speak() itself — this avoids the cancel/speak race that
+    // can make some engines silently drop or delay the next utterance
+    if (synthAvailable) window.speechSynthesis.cancel();
+
+    speak(WORDS[(Math.random() * WORDS.length) | 0]);
+
+    // self-correcting schedule: base the next tick off an absolute timeline
+    // instead of chaining setInterval, so timer ticks never accumulate drift
+    nextTickAt += DELAY;
+    const drift = nextTickAt - Date.now();
+    nextTickTimeoutId = setTimeout(tick, Math.max(0, drift));
+  }
+
+  function formatTime(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
+
+  function updateTimer() {
+    timerEl.textContent = formatTime(Date.now() - startTime);
+  }
+
+  function start() {
+    summaryEl.classList.remove('visible');
+    summaryEl.textContent = '';
+
+    startBtn.textContent = 'Stop';
+    startBtn.classList.add('active');
+
+    startTime = Date.now();
+    timerEl.textContent = '00:00';
+    timerEl.classList.add('visible');
+    timerIntervalId = setInterval(updateTimer, 1000);
+
+    if (synthAvailable) window.speechSynthesis.resume(); // unlock engine on this user gesture
+
+    nextTickAt = Date.now();
+    tick();
+
+    // Chrome silently pauses speechSynthesis after ~15s idle; nudge it periodically,
+    // but only when nothing is actively speaking so the nudge can't cut off a word
+    if (synthAvailable) {
+      keepAliveId = setInterval(() => {
+        if (!speaking) window.speechSynthesis.resume();
+      }, 5000);
+    }
+  }
+
+  function stop() {
+    const elapsed = Date.now() - startTime;
+
+    startBtn.textContent = 'Start';
+    startBtn.classList.remove('active');
+
+    wordDisplay.classList.remove('show');
+    wordDisplay.textContent = '';
+
+    timerEl.classList.remove('visible');
+
+    clearTimeout(nextTickTimeoutId);
+    clearInterval(keepAliveId);
+    clearInterval(timerIntervalId);
+    if (synthAvailable) window.speechSynthesis.cancel();
+    speaking = false;
+
+    summaryEl.textContent = `session duration — ${formatTime(elapsed)}`;
+    summaryEl.classList.add('visible');
+  }
+
+  startBtn.addEventListener('click', () => {
+    running = !running;
+    running ? start() : stop();
+  });
+</script>
+
+</body>
+</html>
